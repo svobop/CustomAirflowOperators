@@ -3,27 +3,26 @@ name: Python package
 on: [push, pull_request]
 
 jobs:
-  test:
+  find_plugins:
     runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.find_plugins_step.outputs.dirs }}
     steps:
       - uses: actions/checkout@v3
-
       - name: Find Plugin Directories
-        id: find_plugins
+        id: find_plugins_step
         run: |
           dirs=$(find shared_airflow_components -mindepth 1 -maxdepth 1 -type d)
-          echo "::set-output name=dirs::$(echo $dirs | jq -c .)"
-
-    outputs:
-      plugins: ${{ steps.find_plugins.outputs.dirs }}
+          json_array=$(echo "$dirs" | jq -R . | jq -s .)
+          echo "dirs=${json_array}" >> $GITHUB_OUTPUT
 
   test_plugins:
-    needs: test
+    needs: find_plugins
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        plugin: ${{ fromJson(needs.test.outputs.plugins) }}
-
+        plugin: ${{ fromJson(needs.find_plugins.outputs.plugins) }}
     steps:
       - uses: actions/checkout@v3
 
@@ -31,12 +30,12 @@ jobs:
         id: extract_version
         run: |
           airflow_version=$(echo "${{ matrix.plugin }}" | sed -n 's/.*airflow-//p')
-          echo "::set-output name=airflow_version::$airflow_version"
+          echo "airflow_version=${airflow_version}" >> $GITHUB_OUTPUT
 
       - name: Run tests in Docker
         run: |
           docker run \
-            -v $(pwd):/usr/local/airflow/dags \
+            -v "$(pwd)":"/usr/local/airflow/dags" \
             --rm \
-            apache/airflow:${{ steps.extract_version.outputs.airflow_version }} \
-            bash -c "pip install && python -m unittest discover /usr/local/airflow/dags/${{ matrix.plugin }}/tests"
+            "apache/airflow:${{ steps.extract_version.outputs.airflow_version }}" \
+            python -m unittest discover "/usr/local/airflow/dags/${{ matrix.plugin }}/tests"
