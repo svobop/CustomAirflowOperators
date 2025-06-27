@@ -1,0 +1,42 @@
+name: Python package
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Find Plugin Directories
+        id: find_plugins
+        run: |
+          dirs=$(find shared_airflow_components -mindepth 1 -maxdepth 1 -type d)
+          echo "::set-output name=dirs::$(echo $dirs | jq -c .)"
+
+    outputs:
+      plugins: ${{ steps.find_plugins.outputs.dirs }}
+
+  test_plugins:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        plugin: ${{ fromJson(needs.test.outputs.plugins) }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Extract Airflow Version
+        id: extract_version
+        run: |
+          airflow_version=$(echo "${{ matrix.plugin }}" | sed -n 's/.*airflow-//p')
+          echo "::set-output name=airflow_version::$airflow_version"
+
+      - name: Run tests in Docker
+        run: |
+          docker run \
+            -v $(pwd):/usr/local/airflow/dags \
+            --rm \
+            apache/airflow:${{ steps.extract_version.outputs.airflow_version }} \
+            bash -c "pip install && python -m unittest discover /usr/local/airflow/dags/${{ matrix.plugin }}/tests"
