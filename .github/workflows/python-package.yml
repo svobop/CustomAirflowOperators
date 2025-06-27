@@ -6,15 +6,14 @@ jobs:
   find_plugins:
     runs-on: ubuntu-latest
     outputs:
-      plugins: ${{ steps.find_plugins_step.outputs.dirs }}
+      plugins: ${{ steps.find_plugins_step.outputs.plugins }}
     steps:
       - uses: actions/checkout@v3
       - name: Find Plugin Directories
         id: find_plugins_step
         run: |
-          dirs=$(find shared_airflow_components -mindepth 1 -maxdepth 1 -type d)
-          json_array=$(echo "$dirs" | jq -R . | jq -s .)
-          echo "dirs=${json_array}" >> $GITHUB_OUTPUT
+          plugins_json=$(find shared_airflow_components -mindepth 1 -maxdepth 1 -type d | jq -Rsc 'split("\n") | map(select(. != ""))')
+          echo "plugins=${plugins_json}" >> $GITHUB_OUTPUT
 
   test_plugins:
     needs: find_plugins
@@ -35,7 +34,8 @@ jobs:
       - name: Run tests in Docker
         run: |
           docker run \
-            -v "$(pwd)":"/usr/local/airflow/dags" \
+            -v "$(pwd):/opt/airflow/plugins" \
             --rm \
+            --workdir "/opt/airflow/plugins/${{ matrix.plugin }}" \
             "apache/airflow:${{ steps.extract_version.outputs.airflow_version }}" \
-            python -m unittest discover "/usr/local/airflow/dags/${{ matrix.plugin }}/tests"
+            python -m unittest discover tests
